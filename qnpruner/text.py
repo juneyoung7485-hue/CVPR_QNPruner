@@ -3,7 +3,7 @@
     split_text(text)      question / context split by rules (SQA3D "situation + question" prompts)
     question_nouns(text)  unique NOUN / PROPN surfaces of the question sentence, first-appearance order
     attribute_phrases()   amod noun phrases (NPG1A): "root + compound + amod" strings of noun chunks with an amod
-    question_type(text)   QR3 type A / B / D that sets the Stage-1 share rho of the budget
+    question_type(text)   QR3 type A / B / C that sets the Stage-1 share rho of the budget
     question_span(text)   the question sentence used for the no-noun relevance fallback
 """
 import re
@@ -11,7 +11,7 @@ import re
 NOUN_POS = ('NOUN', 'PROPN')
 WH_WORDS = {'what', 'which', 'who', 'whom', 'whose', 'where', 'when', 'why', 'how'}
 CORE_DEPS = ('nsubj', 'nsubjpass', 'attr', 'dobj')
-RHO = {'A': 20 / 32, 'B': 12 / 32, 'D': 1 / 2}          # Stage-1 share of the budget per question type
+RHO = {'A': 20 / 32, 'B': 12 / 32, 'C': 1 / 2}          # Stage-1 share of the budget per question type
 _MARKER = re.compile(r'(?i)\b(situation|context|question)\s*:')
 _NLP = {}
 
@@ -130,18 +130,18 @@ def attribute_phrases(split, nouns):
 
 
 def question_type(split):
-    """QR3: no noun chunk -> D; a noun chunk in a core slot (nsubj / nsubjpass / attr / dobj) -> A; a WP wh-pronoun in a
-    core slot -> B; else D."""
+    """QR3: no noun chunk -> C; a noun chunk in a core slot (nsubj / nsubjpass / attr / dobj) -> A; a WP wh-pronoun in a
+    core slot -> B; else C."""
     s0, s1 = _span(split)
     doc = nlp()(split['text'][s0:s1])
     chunks = [c for c in doc.noun_chunks if c.root.pos_ in NOUN_POS]
     if not chunks:
-        return 'D'
+        return 'C'
     if any(c.root.dep_ in CORE_DEPS for c in chunks):
         return 'A'
     if any(t.tag_ == 'WP' and t.dep_ in CORE_DEPS for t in doc):
         return 'B'
-    return 'D'
+    return 'C'
 
 
 # ------------------------------------------------------------------------------------------------ no-noun fallback

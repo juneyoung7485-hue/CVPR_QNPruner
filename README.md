@@ -52,7 +52,7 @@ The package ships code only. It contains no data, annotations, features or check
 
 | Step | File | What it does |
 |---|---|---|
-| 0 | `text.py` | spaCy parse of the question sentence: nouns, attribute (amod) phrases, and the question type. The type sets the Stage-1 share ρ: A = 20/32, B = 12/32, D = 1/2. |
+| 0 | `text.py` | spaCy parse of the question sentence: nouns, attribute (amod) phrases, and the question type. The type sets the Stage-1 share ρ: A = 20/32, B = 12/32, C (all other questions) = 1/2. |
 | 1 | `relevance.py` | Relevance r_w(i) = cos(P(f2d_i), e(w)). P is the LLaVA-3D projector and e(w) is the mean LLM input embedding of w. |
 | 2 | `stage1.py` | Stage 1 builds kb = round(ρK) anchors, described below. |
 | 3 | `stage2.py` | Stage 2 fills the remaining kv = K − kb tokens, described below. |

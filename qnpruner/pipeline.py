@@ -61,11 +61,14 @@ def select(text, entry, projector, embed_tokens, tok, tok_name, k):
         z = F.normalize(entry['feat_2d'].float().cpu(), dim=1)
         base = S1.stage1(score, phrase_score, [h for _, h, _ in emb_p], [w.lower() for w, _ in emb_n],
                          valid, k_c, xyz, z) if k_c > 0 else []
-    else:                                                      # no noun: max-min diversity for all K
+    else:                                                      # no noun: max-min K tokens = generic NL2 anchors
         fn = F.normalize(v_cpu, dim=1)
         base = S2.maxmin(fn, valid, min(k, int((entry['v'].float().norm(dim=1) > 0).sum())))
-    # Step 3: Stage 2
-    keep = S2.stage2(entry, valid, r_hat, base, k_t) if k_t - k_c > 0 else list(base)
+    # Step 3: Stage 2 (skipped without a noun: max-min already chose all K tokens)
+    if not emb_n:
+        keep = list(base)
+    else:
+        keep = S2.stage2(entry, valid, r_hat, base, k_t) if k_t - k_c > 0 else list(base)
     if len(keep) != k_t or len(set(keep)) != k_t or not bool(valid[torch.tensor(keep)].all()):
         raise AssertionError(f'{NAME}: {len(keep)} picks ({len(set(keep))} unique) != {k_t}')
     sel = sorted(keep)
