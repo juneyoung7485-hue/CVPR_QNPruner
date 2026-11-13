@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.bak*
+pred/
+logs/
+playground
+checkpoints/
+*.jsonl
+results/
