@@ -79,7 +79,7 @@ python scripts/eval/score_openeqa.py <pred.json> --model gpt-4o   # LLM-Match
 
 **Optional settings**
 - `OURS_STATS_FILE=<file.jsonl>` writes one record per question: `selected_indices`, `cluster_indices` (Stage-1 anchors), `qa_order`, nouns, phrases, question type and timings.
-- `DETERMINISTIC=1 PYTHONPATH=$PWD/determinism` reproduces the reported numbers bit-exactly with deterministic CUDA kernels.
+- `DETERMINISTIC=1 PYTHONPATH=$PWD/determinism` enables deterministic CUDA kernels and per-question seeds. With the same GPU type and software versions this reproduces our numbers exactly; other setups may differ slightly.
 - `OURS_TOKENIZER` selects the tokenizer, which defaults to the checkpoint's own.
 
 Batch size must be 1, as in the LLaVA-3D evaluation scripts.

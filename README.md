@@ -1,5 +1,46 @@
 # QNPruner
 
+Training-free, query-aware visual token pruning for 3D vision-language models (LLaVA-3D).
+
+This repository contains code only:
+- the QNPruner selector (`qnpruner/`),
+- the LLaVA-3D based evaluation code it plugs into (`llava/`, `scripts/eval/`),
+- the deterministic-kernel settings used for our experiments (`determinism/`).
+
+It contains no data, annotations, features or model weights.
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `qnpruner/` | QNPruner (method below). Selected with `POOLING=qnpruner`. |
+| `llava/` | LLaVA-3D model and evaluation code, modified with an external token-compression hook (`llava/model/multimodal_encoder/method_registry.py`). Also includes the baseline compressors used for comparison. |
+| `scripts/eval/` | `eval_scanqa.sh`, `eval_sqa3d.sh`, `eval_openeqa.sh`, and `score_openeqa.py` (LLM-Match judge). |
+| `determinism/` | `sitecustomize.py` for deterministic kernels (used via `PYTHONPATH`). |
+| `visualization/` | Token-selection record helpers imported by the evaluation loop. |
+
+## Installation
+
+Our experiments ran in a Docker image; its pinned versions are in `docker-pip-constraints.txt` and `docker-extra-requirements.txt`. A typical setup (not tested from scratch):
+
+```bash
+pip install -e .                                   # LLaVA-3D dependencies (see pyproject.toml)
+pip install -c docker-pip-constraints.txt -r docker-extra-requirements.txt
+pip install torch-scatter spacy==3.8.16 pycocoevalcap mmengine openai
+python -m spacy download en_core_web_sm            # en_core_web_sm 3.8.0
+```
+
+Tested with torch 2.1.2 (CUDA 11.8) and transformers 4.37.2 on one H100.
+
+## License
+
+- `qnpruner/` is our code.
+- `llava/` and the evaluation scripts are modified from [LLaVA-3D](https://github.com/ZCMax/LLaVA-3D), which is released under CC BY-NC-SA 4.0. They are redistributed under the same license.
+
+See `NOTICE` for details.
+
+## Method overview
+
 QNPruner is a training-free visual token pruner for LLaVA-3D. It keeps exactly **K** of the scene's voxel tokens, chosen by the nouns of the question, and runs before the LLM.
 
 - **What it uses:** only the frozen LLaVA-3D parts (CLIP layer -2 features, the projector and the LLM input embeddings) and spaCy.
@@ -79,7 +120,11 @@ python scripts/eval/score_openeqa.py <pred.json> --model gpt-4o   # LLM-Match
 
 **Optional settings**
 - `OURS_STATS_FILE=<file.jsonl>` writes one record per question: `selected_indices`, `cluster_indices` (Stage-1 anchors), `qa_order`, nouns, phrases, question type and timings.
-- `DETERMINISTIC=1 PYTHONPATH=$PWD/determinism` reproduces the reported numbers bit-exactly with deterministic CUDA kernels.
+- `DETERMINISTIC=1 PYTHONPATH=$PWD/determinism` enables deterministic CUDA kernels and per-question seeds. With the same GPU type and software versions this reproduces our numbers exactly; other setups may differ slightly.
 - `OURS_TOKENIZER` selects the tokenizer, which defaults to the checkpoint's own.
 
 Batch size must be 1, as in the LLaVA-3D evaluation scripts.
+
+## Citation
+
+Coming soon.
