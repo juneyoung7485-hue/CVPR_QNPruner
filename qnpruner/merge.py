@@ -58,6 +58,27 @@ def hop_distance(anchors, nbr, hmax=MAX_HOP):
     return H
 
 
+def within_hops(tokens, rows, nbr, hmax=MAX_HOP):
+    """(K, N) bool: voxel reachable from tokens[i] in <= hmax steps on the 26-neighbour graph, filled only for the
+    tokens with rows[i] True (other rows stay False). Same reach set as hop_distance(...) <= hmax, but it walks only
+    the <= 26^hmax neighbourhood of each needed token instead of every voxel."""
+    k, n = tokens.numel(), nbr.shape[0]
+    R = torch.zeros(k, n, dtype=torch.bool)
+    idx = torch.nonzero(rows).squeeze(1)
+    if idx.numel() == 0:
+        return R
+    front = tokens[idx].long()[:, None]                         # (k1, 1) current frontier ids, -1 = none
+    R[idx, front[:, 0]] = True
+    for _ in range(hmax):
+        nxt = nbr[front.clamp(min=0)]                           # (k1, f, 26)
+        nxt = torch.where((front >= 0)[:, :, None], nxt, torch.full_like(nxt, -1)).reshape(idx.numel(), -1)
+        ri = idx[:, None].expand_as(nxt)
+        hit = nxt >= 0
+        R[ri[hit], nxt[hit]] = True
+        front = nxt
+    return R
+
+
 def merge(fused, keep, stage1, valid, grid):
     """fused (N, C) pre-projector rows, keep (K,) selected voxel ids (sorted), stage1 = Stage-1 anchor ids.
     Returns the (K, C) float32 merged rows in ``keep`` order."""
@@ -72,12 +93,12 @@ def merge(fused, keep, stage1, valid, grid):
     a = (F.normalize(G[src], dim=1) @ F.normalize(G[keep], dim=1).T).argmax(1)
     A = torch.zeros(src.numel(), k, dtype=torch.bool, device=dev)
     A[torch.arange(src.numel(), device=dev), a] = True
-    # eligibility: within MAX_HOP hops of the assigned token, and the token is a Stage-1 anchor
-    H = hop_distance(keep, neighbour_table(grid, valid), MAX_HOP)
-    hu = H[a.cpu(), src.cpu()].long()
-    A &= ((hu <= MAX_HOP) & (hu < UNREACHED)).to(dev)[:, None]
+    # eligibility: the token is a Stage-1 anchor and u is within MAX_HOP hops of it
     s1 = set(int(x) for x in stage1)
-    A &= torch.tensor([int(i) in s1 for i in keep.cpu().tolist()], dtype=torch.bool, device=dev)[None, :]
+    is_s1 = torch.tensor([int(i) in s1 for i in keep.cpu().tolist()], dtype=torch.bool)
+    R = within_hops(keep.cpu(), is_s1, neighbour_table(grid, valid), MAX_HOP)
+    A &= R[a.cpu(), src.cpu()].to(dev)[:, None]
+    A &= is_s1.to(dev)[None, :]
     # uniform mean of the anchor row and its sources
     W = A.float()
     wsum = W.sum(0)

@@ -23,6 +23,20 @@ def nlp():
     return _NLP['nlp']
 
 
+_DOCS = {}
+
+
+def parse(s):
+    """spaCy parse of s, cached per string: one question's split / nouns / phrases / type re-read the same span, and the
+    parse is deterministic, so a cached Doc gives the same result as a fresh one (the Docs are only read)."""
+    doc = _DOCS.get(s)
+    if doc is None:
+        if len(_DOCS) >= 64:
+            _DOCS.clear()
+        doc = _DOCS[s] = nlp()(s)
+    return doc
+
+
 # ------------------------------------------------------------------------------------------------ question / context
 def _is_question(sent):
     toks = [t for t in sent if not t.is_space and not t.is_punct]
@@ -55,7 +69,7 @@ def split_text(text):
         if parts.get('context'):
             out['context_span'] = list(parts['context'])
         return out
-    sents = [s for s in nlp()(text).sents if s.text.strip()]
+    sents = [s for s in parse(text).sents if s.text.strip()]
     qs = [i for i, s in enumerate(sents) if _is_question(s)]
     if len(qs) != 1 or qs[0] != len(sents) - 1:
         return dict(out, ambiguous=True)
@@ -78,7 +92,7 @@ def question_nouns(split):
     text = split['text']
 
     def nouns_in(span, source):
-        doc = nlp()(text[span[0]:span[1]])
+        doc = parse(text[span[0]:span[1]])
         return [(span[0] + t.idx, t.text, source) for t in doc if t.pos_ in NOUN_POS]
 
     if split['ambiguous']:
@@ -114,7 +128,7 @@ def attribute_phrases(split, nouns):
     if not nouns:
         return []
     s0, s1 = _span(split)
-    doc = nlp()(split['text'][s0:s1])
+    doc = parse(split['text'][s0:s1])
     have = {n.lower() for n in nouns}
     seen, out = set(), []
     for ch in doc.noun_chunks:
@@ -133,7 +147,7 @@ def question_type(split):
     """QR3: no noun chunk -> C; a noun chunk in a core slot (nsubj / nsubjpass / attr / dobj) -> A; a WP wh-pronoun in a
     core slot -> B; else C."""
     s0, s1 = _span(split)
-    doc = nlp()(split['text'][s0:s1])
+    doc = parse(split['text'][s0:s1])
     chunks = [c for c in doc.noun_chunks if c.root.pos_ in NOUN_POS]
     if not chunks:
         return 'C'
