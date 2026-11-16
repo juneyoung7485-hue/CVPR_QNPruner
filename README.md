@@ -62,7 +62,7 @@ The package ships code only. It contains no data, annotations, features or check
 **Stage 1 (kb anchors)**
 1. Noun groups: assign each voxel to argmax_j r_j. Keep it only if its best relevance is at or above τ, the scene median.
 2. Equal quotas: each noun gets an equal share of kn = round(kb/2), or of kb when the question has no attribute phrase.
-3. Per-noun exploration: protect the ceil(q/2) most relevant voxels. Then take one voxel from each not-yet-covered 3D component (0.35 m single linkage, size ≥ 2), choosing components by peak relevance × appearance novelty.
+3. Per-noun exploration: protect the ceil(q/2) most relevant voxels. Then take one voxel from each not-yet-covered 3D component (0.35 m single linkage, size ≥ 2), choosing components by [peak relevance]₊ × appearance novelty, where [x]₊ = max(x, 0).
 4. Phrases: each attribute phrase gets an equal share of the rest. Its column is (1 − w)·z(r_head) + w·z(r_phrase), where w = spread_head / (spread_head + spread_phrase).
 5. Relevance fill: any shortfall is filled from max_j r_j.
 

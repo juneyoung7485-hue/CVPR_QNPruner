@@ -5,8 +5,8 @@ Noun quotas   equal shares of kn over the nouns (largest remainder, ties -> earl
               question has attribute phrases, else kn = kb
 Exploration   per noun j: 3D components of its group (single linkage <= 0.35 m); protect the ceil(q/2) most relevant
               members, then one pick (most relevant member) per not-yet-covered component of size >= 2, the component
-              chosen by peak relevance x appearance novelty (1 - max cos of mean f2d to the covered components); then
-              relevance order
+              chosen by [peak relevance]_+ x appearance novelty (1 - max cos of mean f2d to the covered components;
+              [x]_+ = max(x, 0), so a negative relevance never favours the less novel component); then relevance order
 Phrases       the rest kb - |S1| over the attribute phrases equally, each by the fused column
               (1 - w) z(r_head) + w z(r_phrase), w = s_head / (s_head + s_phrase), s = mean pairwise 3D distance of
               the top-16 voxels of that map
@@ -90,7 +90,7 @@ def explore_order(members, r, q, xyz, z):
 
         def key(c):
             novelty = 1 - max((float(mean_z[c] @ y) for y in cov_z), default=0.0)
-            return float(r[lab == c].max()) * novelty
+            return max(float(r[lab == c].max()), 0.0) * novelty
         c = max(cand, key=key)
         mem = torch.nonzero(lab == c).squeeze(1)
         sel.append(int(mem[torch.argmax(r[mem])]))
