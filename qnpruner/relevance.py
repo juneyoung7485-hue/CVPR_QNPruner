@@ -37,14 +37,3 @@ def word_relevance(P2d, embeddings):
     """(N, J) cosine between the projected 2D voxel features (N, D) and the word embeddings (list of (D,))."""
     E = F.normalize(torch.stack(embeddings).float(), dim=1)
     return F.normalize(P2d, dim=1) @ E.T
-
-
-def question_relevance(P2d, question, embed_tokens, tok):
-    """(N,) cosine to the mean embedding of the question sentence (only used when the question has no noun)."""
-    ids = tok(question, add_special_tokens=False, return_tensors='pt').input_ids[0]
-    special = set(getattr(tok, 'all_special_ids', []) or [])
-    if special:
-        ids = ids[torch.tensor([int(i) not in special for i in ids], dtype=torch.bool)]
-    with torch.no_grad():
-        q = F.normalize(embed_tokens(ids.to(embed_tokens.weight.device)).float().mean(0), dim=-1)
-    return F.normalize(P2d, dim=1) @ q.float().cpu()

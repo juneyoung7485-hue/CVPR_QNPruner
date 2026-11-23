@@ -3,10 +3,11 @@ QNPruner release
 - qnpruner/ : QNPruner token selection (this work).
 - llava/, scripts/eval/eval_*.sh, pyproject.toml : derived from LLaVA-3D (https://github.com/ZCMax/LLaVA-3D),
   which is distributed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License
-  (CC BY-NC-SA 4.0, https://creativecommons.org/licenses/by-nc-sa/4.0/). These files are modified (external
-  token-compression hooks via method_registry, voxel-level evaluation, baseline compressors used for comparison)
-  and are redistributed under the same license. LLaVA-3D itself builds on LLaVA (Apache-2.0).
+  (CC BY-NC-SA 4.0, https://creativecommons.org/licenses/by-nc-sa/4.0/). These files are modified (an external
+  token-selection hook via method_registry, the question text and LLM embedding table handed to the video tower,
+  compact evaluation loops) and are redistributed under the same license. LLaVA-3D itself builds on LLaVA (Apache-2.0).
+- scripts/eval/score_openeqa.py : OpenEQA LLM-Match scoring following open-eqa's evaluate-predictions.py
+  (https://github.com/facebookresearch/open-eqa), which it imports at run time.
 - determinism/ : deterministic-kernel settings used to reproduce the reported numbers.
-- visualization/ : token-selection record helpers imported by the evaluation loop.
 
 No datasets, annotations, features or model weights are included.

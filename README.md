@@ -2,22 +2,18 @@
 
 Training-free, query-aware visual token pruning for 3D vision-language models (LLaVA-3D).
 
-This repository contains code only:
-- the QNPruner selector (`qnpruner/`),
-- the LLaVA-3D based evaluation code it plugs into (`llava/`, `scripts/eval/`),
-- the deterministic-kernel settings used for our experiments (`determinism/`).
+QNPruner keeps exactly **K** of the scene's voxel tokens, chosen by the nouns of the question, before the LLM runs. It uses only frozen LLaVA-3D parts (CLIP layer -2 features, the projector and the LLM input embeddings) and spaCy: no training, no extra encoder, no LLM forward pass, no ground truth and no dataset- or K-specific setting. The method is described step by step in [`qnpruner/README.md`](qnpruner/README.md).
 
-It contains no data, annotations, features or model weights.
+This repository contains code only. It contains no data, annotations, features or model weights.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `qnpruner/` | QNPruner (method below). Selected with `POOLING=qnpruner`. |
-| `llava/` | LLaVA-3D model and evaluation code, modified with an external token-compression hook (`llava/model/multimodal_encoder/method_registry.py`). Also includes the baseline compressors used for comparison. |
-| `scripts/eval/` | `eval_scanqa.sh`, `eval_sqa3d.sh`, `eval_openeqa.sh`, and `score_openeqa.py` (LLM-Match judge). |
-| `determinism/` | `sitecustomize.py` for deterministic kernels (used via `PYTHONPATH`). |
-| `visualization/` | Token-selection record helpers imported by the evaluation loop. |
+| `qnpruner/` | QNPruner (one module per step). Selected with `POOLING=qnpruner`. |
+| `llava/` | LLaVA-3D model and evaluation code. Modified only to hand the selector what it needs: the external-method hook (`llava/model/multimodal_encoder/method_registry.py`, `video_encoder.py`), the question text and the LLM embedding table (`llava/model/llava_arch.py`), and compact ScanQA / SQA3D / OpenEQA evaluators (`llava/eval/`). |
+| `scripts/eval/` | `eval_scanqa.sh`, `eval_sqa3d.sh`, `eval_openeqa.sh`, and `score_openeqa.py` (OpenEQA LLM-Match judge). |
+| `determinism/` | `sitecustomize.py` for deterministic kernels and per-question seeds (used via `PYTHONPATH`). |
 
 ## Installation
 
@@ -32,98 +28,54 @@ python -m spacy download en_core_web_sm            # en_core_web_sm 3.8.0
 
 Tested with torch 2.1.2 (CUDA 11.8) and transformers 4.37.2 on one H100.
 
+**Models** (downloaded from HuggingFace on first use): `ChaimZhu/LLaVA-3D-7B` and `openai/clip-vit-large-patch14-336` (the vision tower).
+
+**Data** (not included; prepare it as in the LLaVA-3D instructions)
+
+| Path | Contents |
+|---|---|
+| `/data/LLaVA-3D-Pretrain/scannet/<scene>/` | ScanNet RGB-D frames, poses and intrinsics (`--video-folder` of the evaluators). |
+| `/data/LLaVA-3D-Pretrain/openeqa_ep600` | OpenEQA episode frames (`OPENEQA_VIDEO_FOLDER`). |
+| `playground/data/annotations/llava-3d-scanqa_val_question.json`, `llava3d_scanqa_val_answer.json` | ScanQA val questions / answers (LLaVA-3D format) |
+| `playground/data/annotations/llava-3d-sqa3d_test_question.json`, `llava3d_sqa3d_test_answer.json` | SQA3D test questions / answers |
+| `playground/data/annotations/llava-3d-openeqa_scannet.json` | OpenEQA questions, ScanNet part (LLaVA-3D format) |
+| `playground/data/annotations/embodiedscan_infos_full.json` | Scene metadata read by the LLaVA-3D loaders |
+
+LLM-Match scoring also needs a checkout of [open-eqa](https://github.com/facebookresearch/open-eqa) (its `data/open-eqa-v0.json` and prompts), given by `OPEN_EQA_ROOT` (default `./open-eqa`).
+
+## Usage
+
+Run from the repository root. Arguments: method (`qnpruner`, or `native` for LLaVA-3D without token selection), voxel size (0.2 m in all our experiments) and K.
+
+```bash
+export DETERMINISTIC=1 PYTHONPATH=$PWD/determinism   # optional: deterministic kernels (see below)
+
+bash scripts/eval/eval_scanqa.sh  qnpruner 0.2 64      # ScanQA val: EM, BLEU, METEOR, ROUGE, CIDEr
+bash scripts/eval/eval_sqa3d.sh   qnpruner 0.2 64      # SQA3D test: EM
+OPENEQA_VIDEO_FOLDER=/data/LLaVA-3D-Pretrain/openeqa_ep600 \
+bash scripts/eval/eval_openeqa.sh qnpruner 0.2 64      # OpenEQA predictions (+ *_official.json)
+python scripts/eval/score_openeqa.py pred/openeqa_qnpruner_vs0.2_t64_official.json \
+       --model gpt-4o-2024-08-06                       # LLM-Match (judge used in the paper)
+
+bash scripts/eval/eval_scanqa.sh native                # LLaVA-3D, all voxel tokens
+```
+
+Predictions are written to `pred/` (one JSON line per question). `score_openeqa.py` asks for the OpenAI key at run time and never stores it.
+
+**Options**
+- `EVAL_LIMIT=N` evaluates only the first N questions (the prediction file gets a `_subset<N>` suffix).
+- `OURS_STATS_FILE=<file.jsonl>` writes one record per question: `selected_indices` (the K kept voxel ids), `cluster_indices` (Stage-1 anchors), nouns, phrases, question type, K and the number of valid voxels.
+- `DETERMINISTIC=1 PYTHONPATH=$PWD/determinism` enables deterministic CUDA kernels and per-question seeds. With the same GPU type and software versions this reproduces our numbers exactly; other setups may differ slightly.
+- `OURS_TOKENIZER` selects the tokenizer used for the word embeddings (default: the checkpoint's own).
+
+Batch size is 1, as in the LLaVA-3D evaluation scripts.
+
 ## License
 
 - `qnpruner/` is our code.
 - `llava/` and the evaluation scripts are modified from [LLaVA-3D](https://github.com/ZCMax/LLaVA-3D), which is released under CC BY-NC-SA 4.0. They are redistributed under the same license.
 
 See `NOTICE` for details.
-
-## Method overview
-
-QNPruner is a training-free visual token pruner for LLaVA-3D. It keeps exactly **K** of the scene's voxel tokens, chosen by the nouns of the question, and runs before the LLM.
-
-- **What it uses:** only the frozen LLaVA-3D parts (CLIP layer -2 features, the projector and the LLM input embeddings) and spaCy.
-- **What it does not use:** training, an extra encoder, an LLM forward pass, ground truth, or any dataset- or K-specific setting.
-
-The package ships code only. It contains no data, annotations, features or checkpoints.
-
-## Method
-
-| Step | File | What it does |
-|---|---|---|
-| 0 | `text.py` | spaCy parse of the question sentence: nouns, attribute (amod) phrases, and the question type. The type sets the Stage-1 share ρ: A = 20/32, B = 12/32, C (all other questions) = 1/2. |
-| 1 | `relevance.py` | Relevance r_w(i) = cos(P(f2d_i), e(w)). P is the LLaVA-3D projector and e(w) is the mean LLM input embedding of w. |
-| 2 | `stage1.py` | Stage 1 builds kb = round(ρK) anchors, described below. |
-| 3 | `stage2.py` | Stage 2 fills the remaining kv = K − kb tokens, described below. |
-| 4 | `merge.py` | NL2 merging, described below. |
-| – | `pipeline.py` | Tower hook: builds the voxel features and calls the steps in order. |
-
-**Stage 1 (kb anchors)**
-1. Noun groups: assign each voxel to argmax_j r_j. Keep it only if its best relevance is at or above τ, the scene median.
-2. Equal quotas: each noun gets an equal share of kn = round(kb/2), or of kb when the question has no attribute phrase.
-3. Per-noun exploration: protect the ceil(q/2) most relevant voxels. Then take one voxel from each not-yet-covered 3D component (0.35 m single linkage, size ≥ 2), choosing components by [peak relevance]₊ × appearance novelty, where [x]₊ = max(x, 0).
-4. Phrases: each attribute phrase gets an equal share of the rest. Its column is (1 − w)·z(r_head) + w·z(r_phrase), where w = spread_head / (spread_head + spread_phrase).
-5. Relevance fill: any shortfall is filled from max_j r_j.
-
-**Stage 2 (kv = K − kb tokens)**
-1. Local FL: round(0.25·kv) picks by facility location on the appearance similarity. Candidates are valid voxels within 0.6 m of an anchor.
-2. Global FL: the rest by facility location over all valid voxels.
-   - Similarity: S = 0.5·(cos P(f_fused) + 1)/2 + 0.5·(cos f2d + 1)/2.
-   - Coverage weight: a_u = 0.5/|U|.
-   - Relevance bonus: 0.5·r̂/K, where r̂ = (max_j r_j + 1)/2.
-
-**No-noun questions:** max-min diversity selects all K tokens.
-
-**NL2 (Step 4)**
-1. Each unselected valid voxel is assigned to its most similar selected token, using the pre-projector fused features.
-2. It is merged only if that token is a Stage-1 anchor within 2 hops on the 26-neighbour voxel graph.
-3. The anchor row becomes the uniform mean of itself and its merged voxels. Token IDs and K do not change.
-
-The LLM receives the K rows in voxel order. Every greedy tie goes to the lower voxel index.
-
-## Requirements
-
-**Code**
-- This repository's `llava/` package (LLaVA-3D with the external-method hook `llava/model/multimodal_encoder/method_registry.py`) and `scripts/eval/`.
-- Python packages: torch 2.1.2 (CUDA 11.8 build), transformers 4.37.2, torch_scatter, scipy, spaCy 3.8.16 with `en_core_web_sm` 3.8.0, plus pycocoevalcap and mmengine for the evaluators.
-- Exact versions are listed in `docker-pip-constraints.txt` and `docker-extra-requirements.txt`.
-
-**Models** (downloaded from HuggingFace on first use)
-- `ChaimZhu/LLaVA-3D-7B`
-- `openai/clip-vit-large-patch14-336` (the vision tower)
-
-**Data** (not included; prepare it as in the LLaVA-3D instructions)
-
-| Path | Contents |
-|---|---|
-| `/data/LLaVA-3D-Pretrain/scannet/<scene>/` | ScanNet RGB-D frames, poses and intrinsics. Set the root with `--video-folder`. |
-| `/data/LLaVA-3D-Pretrain/openeqa_ep600` | OpenEQA episode frames (`OPENEQA_VIDEO_FOLDER`). |
-| `playground/data/annotations/llava-3d-scanqa_val_question.json`, `llava3d_scanqa_val_answer.json` | ScanQA val questions / answers (LLaVA-3D format) |
-| `playground/data/annotations/llava-3d-sqa3d_test_question.json`, `llava3d_sqa3d_test_answer.json` | SQA3D test questions / answers |
-| `playground/data/annotations/llava-3d-openeqa_scannet.json`, `open-eqa-v0.json` | OpenEQA, ScanNet subset |
-| `playground/data/annotations/embodiedscan_infos_full.json` | Scene metadata read by the LLaVA-3D loaders |
-
-## Usage
-
-Run from the repository root. The second argument is the voxel size (0.2 m) and the third is K.
-
-```bash
-bash scripts/eval/eval_scanqa.sh  qnpruner 0.2 64     # ScanQA val: EM, CIDEr, ...
-bash scripts/eval/eval_sqa3d.sh   qnpruner 0.2 64     # SQA3D test: EM
-OPENEQA_VIDEO_FOLDER=/data/LLaVA-3D-Pretrain/openeqa_ep600 \
-bash scripts/eval/eval_openeqa.sh qnpruner 0.2 64     # OpenEQA predictions
-python scripts/eval/score_openeqa.py <pred.json> --model gpt-4o   # LLM-Match
-```
-
-`score_openeqa.py` prompts for the OpenAI key at run time. The key is never stored.
-
-**Optional settings**
-- `OURS_STATS_FILE=<file.jsonl>` writes one record per question: `selected_indices`, `cluster_indices` (Stage-1 anchors), `qa_order`, nouns, phrases, question type and timings.
-- `DETERMINISTIC=1 PYTHONPATH=$PWD/determinism` enables deterministic CUDA kernels and per-question seeds. With the same GPU type and software versions this reproduces our numbers exactly; other setups may differ slightly.
-- `OURS_TOKENIZER` selects the tokenizer, which defaults to the checkpoint's own.
-
-Batch size must be 1, as in the LLaVA-3D evaluation scripts.
 
 ## Citation
 

@@ -14,14 +14,12 @@
 
 
 from typing import List, Optional, Tuple, Union
-import os
 
 import torch
 import torch.nn as nn
 
 from transformers import AutoConfig, AutoModelForCausalLM, \
                          LlamaConfig, LlamaModel, LlamaForCausalLM
-from transformers.cache_utils import DynamicCache
 
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.generation.utils import GenerateOutput
@@ -171,30 +169,6 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
                                       inputs_embeds=None, **kwargs):
         images = kwargs.pop("images", None)
         image_sizes = kwargs.pop("image_sizes", None)
-
-        # FastV / SparseVLM: when KV cache was pruned, HF thinks many tokens
-        # are unprocessed because past_length (cache) < input_ids length. Fix
-        # the attention_mask to match the actual cache length so HF only feeds
-        # the last token.
-        fastv_k = int(os.environ.get('FASTV_K', 0))
-        sparsevlm = int(os.environ.get('SPARSEVLM', 0))
-        attention_mask = kwargs.get("attention_mask", None)
-        if (fastv_k > 0 or sparsevlm > 0) and past_key_values is not None and attention_mask is not None:
-            if isinstance(past_key_values, DynamicCache):
-                cache_length = past_key_values.get_seq_length()
-            else:
-                cache_length = past_key_values[0][0].shape[2]
-            # Rebuild attention_mask to match actual cache length + new tokens
-            n_new = input_ids.shape[1] - cache_length
-            if n_new < 0:
-                n_new = 1
-            new_mask_len = cache_length + n_new
-            kwargs["attention_mask"] = torch.ones(
-                (input_ids.shape[0], new_mask_len),
-                dtype=attention_mask.dtype, device=attention_mask.device
-            )
-            # Also trim input_ids to just the new token(s)
-            input_ids = input_ids[:, -n_new:]
 
         inputs = super().prepare_inputs_for_generation(
             input_ids, past_key_values=past_key_values, inputs_embeds=inputs_embeds, **kwargs

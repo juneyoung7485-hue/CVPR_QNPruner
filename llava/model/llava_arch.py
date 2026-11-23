@@ -190,47 +190,17 @@ class LlavaMetaForCausalLM(ABC):
         batch_size, num_view, _, _, _ = images.shape  # (B, V, C, H, W)
         vision_tower = self.get_model().get_vision_tower()
         image_features = vision_tower(images.flatten(0, 1))
-        # CLS→patch attention importance: (B*V, 576) → (B, V, 576)
-        cls_attn = getattr(vision_tower, '_cls_attn', None)
-        if cls_attn is not None:
-            cls_attn = cls_attn.reshape(batch_size, num_view, -1)
-        # VisionZip merge metric (CLIP layer -2 keys): (B*V, 576, head_dim) → (B, V, 576, head_dim).
-        # None for every other pooling method, whose hook is never installed.
-        vz_metric = getattr(vision_tower, '_vz_metric', None)
-        if vz_metric is not None:
-            vz_metric = vz_metric.reshape(batch_size, num_view, vz_metric.shape[-2], vz_metric.shape[-1])
         num_patches_per_side = self.get_vision_tower().num_patches_per_side
-        # Query-guided methods: CLIP semantic patch tokens from the forward
-        # above (no second vision pass). (B*V, H*W, C) -> (B, V*H*W, C), the same (V, H, W)
-        # flatten order the video tower gives image_features below. None for
-        # every other pooling method.
-        query_patch_features = getattr(vision_tower, '_query_patch_features', None)
-        if query_patch_features is not None:
-            assert query_patch_features.shape[0] == batch_size * num_view
-            assert query_patch_features.shape[1] == num_patches_per_side * num_patches_per_side, (
-                f'query patch features have {query_patch_features.shape[1]} tokens per view, '
-                f'expected {num_patches_per_side}x{num_patches_per_side}')
-            query_patch_features = query_patch_features.reshape(
-                batch_size, num_view * query_patch_features.shape[1], query_patch_features.shape[-1])
         if query_texts is not None:
             if isinstance(query_texts, str):
                 query_texts = [query_texts]
             assert len(query_texts) == batch_size, (
                 f'query_texts has {len(query_texts)} entries for a batch of {batch_size}')
         image_features = image_features.permute(0, 2, 1).reshape(batch_size, num_view, -1, num_patches_per_side, num_patches_per_side)
-        # The projector is handed in as well: DivPrune scores tokens in the LLM
-        # embedding space, which is the only thing in the vision path that needs
-        # to look past this line. Every other pooling method ignores it.
-        # query_token_compression_v3 compares the question with visual tokens in
-        # the LLM input space, so it needs the LLM's token embedding table. A
-        # tuple, so it is not registered as a submodule of the video tower.
+        # QNPruner scores voxels against question words in the LLM input space, so the video tower gets the LLM's
+        # token embedding table (a tuple, so it is not registered as a submodule) and the projector.
         self.get_model().get_video_tower()._llm_embed_tokens = (self.get_model().embed_tokens,)
-        # query_token_compression_v3_2: patch-received attention, (B*V, 576) -> (B, V*576)
-        # in the same (V, H, W) order as cls_attn. None unless the method asks for it.
-        patch_attn = getattr(vision_tower, '_patch_attn', None)
-        self.get_model().get_video_tower()._patch_attn = (
-            None if patch_attn is None else patch_attn.reshape(batch_size, -1))
-        video_features, batch_offset = self.get_model().get_video_tower()(image_features, depths, poses, intrinsics, lengths=lengths, cls_attn=cls_attn, vz_metric=vz_metric, projector=self.get_model().mm_projector, query_features=query_patch_features, query_texts=query_texts)  # (B, 1024, C)
+        video_features, batch_offset = self.get_model().get_video_tower()(image_features, depths, poses, intrinsics, lengths=lengths, projector=self.get_model().mm_projector, query_texts=query_texts)  # (B, 1024, C)
         video_features = self.get_model().mm_projector(video_features)  # (B, 1024, D)
         return video_features, batch_offset
     
@@ -358,15 +328,6 @@ class LlavaMetaForCausalLM(ABC):
                     if special_token == IMAGE_TOKEN_INDEX:
                         cur_image_features = image_features[cur_image_idx]  # (N, C)
                         cur_image_idx += 1
-                        # Where the visual tokens land in the sequence. The
-                        # decoder-side pruners (FastV / SparseVLM) run several
-                        # frames below this and cannot recover the layout, so
-                        # it is published here. Batch > 1 would need one entry
-                        # per sample; these evaluators run one question at a
-                        # time, and the pruner no-ops if the span is unset.
-                        from .language_model.llm_token_pruning import PRUNE_STATE
-                        PRUNE_STATE["img_start"] = sum(x.shape[0] for x in cur_new_input_embeds)
-                        PRUNE_STATE["img_len"] = cur_image_features.shape[0]
                         cur_new_input_embeds.append(cur_image_features)
                         cur_new_labels.append(torch.full((cur_image_features.shape[0],), IGNORE_INDEX, device=cur_labels.device, dtype=cur_labels.dtype))
                     elif special_token == LOC_TOKEN_INDEX:

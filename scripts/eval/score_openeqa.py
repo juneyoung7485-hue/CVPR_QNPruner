@@ -4,8 +4,9 @@ The key is read with getpass and handed to the openai client in this process onl
 an environment variable or a log, and any OPENAI_API_KEY inherited from the (shared) server environment is ignored.
 Scores are resumable: an existing <stem>-metrics.json is extended, not recomputed.
 
-Usage (needs a terminal for the key prompt; run with the open-eqa venv):
-  ~/VILAB/jyoung/open-eqa/.venv/bin/python scripts/eval/score_openeqa.py pred/openeqa_*_official.json \
+Usage (needs a terminal for the key prompt; needs a checkout of https://github.com/facebookresearch/open-eqa,
+set with OPEN_EQA_ROOT, default ./open-eqa):
+  python scripts/eval/score_openeqa.py pred/openeqa_*_official.json \
       [--model gpt-4-1106-preview] [--workers 8]
 """
 import argparse
@@ -18,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-OPEN_EQA = Path(os.path.expanduser('~/VILAB/jyoung/open-eqa'))
+OPEN_EQA = Path(os.path.expanduser(os.environ.get('OPEN_EQA_ROOT', 'open-eqa'))).resolve()
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(OPEN_EQA))
 os.environ.pop('OPENAI_API_KEY', None)          # never fall back to someone else's key
@@ -35,8 +36,8 @@ def llm_match(client, model, question, answer, prediction, extra_answers=None):
     """openeqa.evaluation.llm_match.get_llm_match_score with an explicit client: upstream's call_openai_api builds
     openai.OpenAI() from the environment, which would pick up the shared server key. Same prompt, seed 1234,
     max_tokens 32, temperature 0.2 and retry policy as upstream."""
-    if prediction is None:
-        return 0
+    if prediction is None or not str(prediction).strip():
+        return 0            # no answer -> lowest mark (an empty prediction gives the judge nothing to grade)
     prompt = load_prompt('mmbench' if extra_answers is None else 'mmbench-extra')
     messages = prepare_openai_messages(prompt.format(question=question, answer=answer, prediction=prediction,
                                                      extra_answers=extra_answers))
@@ -96,7 +97,7 @@ def main():
     ap.add_argument('results', nargs='+')
     ap.add_argument('--model', default='gpt-4-1106-preview', help='official OpenEQA judge')
     ap.add_argument('--workers', type=int, default=8)
-    ap.add_argument('--out-dir', default=str(ROOT / 'results/repro_h100_gpu6/openeqa_metrics'))
+    ap.add_argument('--out-dir', default=str(ROOT / 'results/openeqa_metrics'))
     args = ap.parse_args()
 
     data = json.load(open(OPEN_EQA / 'data/open-eqa-v0.json'))

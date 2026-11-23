@@ -1,19 +1,19 @@
-"""Run-to-run determinism for the LLaVA-3D eval WITHOUT editing LLaVA-3D's files (2026-10-15).
+"""Run-to-run determinism for the LLaVA-3D evaluation, without editing LLaVA-3D's files.
 
 Active only when this directory is on PYTHONPATH and DETERMINISTIC=1, e.g.
-    DETERMINISTIC=1 PYTHONPATH=/workspace/3dzip/determinism bash scripts/eval/eval_fig4.sh ...
-(the eval scripts append their own PYTHONPATH after it).
+    DETERMINISTIC=1 PYTHONPATH=$PWD/determinism bash scripts/eval/eval_scanqa.sh qnpruner 0.2 64
+(the eval scripts append the repository root after it).
 
-Sources of run-to-run variation it removes (found 2026-10-15, results/sparsevlm_determinism/):
- 1. llava_arch.py caps a scene at 2560 voxel tokens with an unseeded torch.randperm (subset AND order change every
-    run) and SparseVLM's density tie-break uses an unseeded torch.rand. -> every LlavaLlamaForCausalLM.generate call
-    is preceded by torch.manual_seed(DET_SEED + crc32(input_ids)), so a question always draws the same subset /
-    order whatever ran before it. The cap itself (random 2560 of the voxels) is LLaVA-3D's behaviour and is kept.
+Sources of run-to-run variation it removes:
+ 1. llava_arch.py caps a scene at 2560 voxel tokens with an unseeded torch.randperm (subset and order change every
+    run). -> every LlavaLlamaForCausalLM.generate call is preceded by torch.manual_seed(DET_SEED + crc32(input_ids)),
+    so a question always draws the same subset / order whatever ran before it. The cap itself is LLaVA-3D's behaviour
+    and is kept (QNPruner's K tokens are far below it).
  2. torch_scatter.scatter_mean / scatter_add / scatter_sum use CUDA atomics (summation order varies -> bf16 voxel
-    features and xyz differ by a few ulp -> pruning decisions flip). -> replaced by a sort + float64 cumulative-sum
-    segment reduction (deterministic; result equal to the exact sum up to the final cast to the input dtype).
+    features and xyz differ by a few ulp -> selection decisions can flip). -> replaced by a sort + float64
+    cumulative-sum segment reduction (deterministic; equal to the exact sum up to the final cast to the input dtype).
  3. CUBLAS_WORKSPACE_CONFIG=:4096:8, torch.use_deterministic_algorithms(True, warn_only=True), no TF32 /
-    cudnn benchmark (residual LLM-kernel variation seen at SparseVLM's last, 2-3-token stages).
+    cudnn benchmark.
 Nothing else changes; with DETERMINISTIC unset this module does nothing.
 """
 import os
@@ -78,8 +78,7 @@ if os.environ.get('DETERMINISTIC', '0') == '1':
     _BASE = int(os.environ.get('DET_SEED', '0'))
 
     def _wrap(mod):
-        # every class of the module that defines its own generate (LlavaLlamaForCausalLM, and e.g. AdaToken-3D's
-        # LlavaLlamaForCausalLM_PDrop subclass, which overrides generate)
+        # every class of the module that defines its own generate (LlavaLlamaForCausalLM)
         for cls in [c for c in vars(mod).values() if isinstance(c, type) and 'generate' in vars(c)]:
             gen = vars(cls)['generate']
 

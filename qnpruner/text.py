@@ -4,7 +4,7 @@
     question_nouns(text)  unique NOUN / PROPN surfaces of the question sentence, first-appearance order
     attribute_phrases()   amod noun phrases (NPG1A): "root + compound + amod" strings of noun chunks with an amod
     question_type(text)   QR3 type A / B / C that sets the Stage-1 share rho of the budget
-    question_span(text)   the question sentence used for the no-noun relevance fallback
+When the question sentence cannot be isolated (split_text -> ambiguous), the whole prompt is parsed instead.
 """
 import re
 
@@ -156,20 +156,3 @@ def question_type(split):
     if any(t.tag_ == 'WP' and t.dep_ in CORE_DEPS for t in doc):
         return 'B'
     return 'C'
-
-
-# ------------------------------------------------------------------------------------------------ no-noun fallback
-def _strip(text, start, end):
-    while start < end and text[start].isspace():
-        start += 1
-    while end > start and text[end - 1].isspace():
-        end -= 1
-    return start, end
-
-
-def question_span(text):
-    """The last sentence ending in '?' (the last sentence when none does)."""
-    spans = [_strip(text, m.start(), m.end()) for m in re.finditer(r'[^.?!]+[.?!]*', text)]
-    spans = [(s, e) for s, e in spans if e > s]
-    asked = [(s, e) for s, e in spans if text[s:e].endswith('?')]
-    return (asked or spans)[-1]

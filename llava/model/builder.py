@@ -324,9 +324,4 @@ def load_pretrained_model(model_path, model_base, model_name, torch_dtype=torch.
     else:
         context_len = 2048
 
-    # Query-based decoder-side pruning (LLM_PRUNE=fastv|sparsevlm). A no-op
-    # unless that variable is set, and it never touches the vision path.
-    from llava.model.language_model.llm_token_pruning import install_llm_pruning
-    install_llm_pruning(model)
-
     return tokenizer, model, processor, context_len
